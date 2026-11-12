@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_description">Now playing, with play/pause and skip</string>
+    <string name="shortcut_voice_short">Voice command</string>
+    <string name="shortcut_voice_long">Tell Music Player what to play</string>
+</resources>
