@@ -80,9 +80,6 @@ class Settings extends ChangeNotifier {
   /// Even out loudness between songs (ReplayGain tags, else an estimate).
   bool normalizeVolume = false;
 
-  /// Spectrum visualizer on Now Playing (needs microphone permission).
-  bool showVisualizer = false;
-
   /// Most recent first.
   List<String> recentSearches = [];
 
@@ -131,7 +128,6 @@ class Settings extends ChangeNotifier {
       ];
       eqPreamp = (json['eqPreamp'] as num?)?.toDouble() ?? eqPreamp;
       normalizeVolume = json['normalizeVolume'] as bool? ?? normalizeVolume;
-      showVisualizer = json['showVisualizer'] as bool? ?? showVisualizer;
       recentSearches = (json['recentSearches'] as List? ?? const [])
           .cast<String>()
           .toList();
@@ -171,7 +167,6 @@ class Settings extends ChangeNotifier {
         'eqGains': eqGains,
         'eqPreamp': eqPreamp,
         'normalizeVolume': normalizeVolume,
-        'showVisualizer': showVisualizer,
         'recentSearches': recentSearches,
         'autoPlayInCar': autoPlayInCar,
         'resumeOnBluetooth': resumeOnBluetooth,

@@ -9,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../models/playlist.dart';
 import '../models/track.dart';
+import 'audius.dart';
 import 'file_deleter.dart';
 import 'library_scanner.dart';
 
@@ -57,7 +58,11 @@ class MusicLibrary extends ChangeNotifier {
   bool get scanning => _scanning;
   List<Playlist> get playlists => List.unmodifiable(_playlists);
 
-  Track? trackById(String id) => _byId[id];
+  /// Online songs played or queued before (see [OnlineTracks]).
+  final online = OnlineTracks();
+
+  /// A library song, or else a remembered online song.
+  Track? trackById(String id) => _byId[id] ?? online.byId(id);
   bool isFavorite(String trackId) => _favorites.contains(trackId);
 
   List<Track> get favorites =>
@@ -117,6 +122,7 @@ class MusicLibrary extends ChangeNotifier {
   Future<void> load() async {
     try {
       _dataDir = await getApplicationSupportDirectory();
+      await online.load(_dataDir);
       if (await _tracksFile.exists()) {
         final json = jsonDecode(await _tracksFile.readAsString());
         // Older caches were a bare list; anything not matching the current

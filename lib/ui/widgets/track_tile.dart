@@ -64,8 +64,8 @@ class TrackTile extends StatelessWidget {
         final art =
             leading ??
             (isCurrent
-                ? ArtworkWithIndicator(path: track.artPath)
-                : Artwork(path: track.artPath));
+                ? ArtworkWithIndicator(path: track.artPath, url: track.artUrl)
+                : Artwork(path: track.artPath, url: track.artUrl));
         return ListTile(
           selected: selected,
           selectedTileColor: scheme.primary.withValues(alpha: 0.12),
@@ -97,6 +97,15 @@ class TrackTile extends StatelessWidget {
                   children: [
                     if (isFavorite)
                       Icon(Icons.favorite, size: 18, color: scheme.primary),
+                    if (track.isOnline)
+                      Tooltip(
+                        message: 'Streams from Audius',
+                        child: Icon(
+                          Icons.cloud_outlined,
+                          size: 18,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
                     ?trailing,
                     _menu(context, handler, library, isFavorite, scheme),
                   ],
@@ -207,30 +216,38 @@ class TrackTile extends StatelessWidget {
       itemBuilder: (_) => [
         const PopupMenuItem(value: 'next', child: Text('Play next')),
         const PopupMenuItem(value: 'queue', child: Text('Add to queue')),
-        PopupMenuItem(
-          value: 'favorite',
-          child: Text(
-            isFavorite ? 'Remove from favourites' : 'Add to favourites',
+        // Favourites and playlists hold songs on this device only.
+        if (!track.isOnline) ...[
+          PopupMenuItem(
+            value: 'favorite',
+            child: Text(
+              isFavorite ? 'Remove from favourites' : 'Add to favourites',
+            ),
           ),
-        ),
-        const PopupMenuItem(value: 'playlist', child: Text('Add to playlist…')),
+          const PopupMenuItem(
+            value: 'playlist',
+            child: Text('Add to playlist…'),
+          ),
+        ],
         if (TrackSelection.maybeOf(context) != null)
           const PopupMenuItem(value: 'select', child: Text('Select')),
         if (onRemove != null)
           PopupMenuItem(value: 'remove', child: Text(removeLabel)),
-        const PopupMenuDivider(),
-        const PopupMenuItem(value: 'hide', child: Text('Hide song')),
-        const PopupMenuItem(
-          value: 'hideFolder',
-          child: Text('Hide this folder…'),
-        ),
-        PopupMenuItem(
-          value: 'delete',
-          child: Text(
-            'Delete from device…',
-            style: TextStyle(color: scheme.error),
+        if (!track.isOnline) ...[
+          const PopupMenuDivider(),
+          const PopupMenuItem(value: 'hide', child: Text('Hide song')),
+          const PopupMenuItem(
+            value: 'hideFolder',
+            child: Text('Hide this folder…'),
           ),
-        ),
+          PopupMenuItem(
+            value: 'delete',
+            child: Text(
+              'Delete from device…',
+              style: TextStyle(color: scheme.error),
+            ),
+          ),
+        ],
       ],
     );
   }

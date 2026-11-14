@@ -49,6 +49,7 @@ class Track {
     required this.modifiedMs,
     this.trackNumber,
     this.artPath,
+    this.artUrl,
     this.replayGainDb,
   });
 
@@ -63,12 +64,35 @@ class Track {
   final int durationMs;
   final int modifiedMs;
   final int? trackNumber;
+
+  /// Cover art file on this device.
   final String? artPath;
+
+  /// Cover art on the web, for online songs whose art isn't downloaded yet.
+  final String? artUrl;
 
   /// ReplayGain track gain from the file's tags, in dB.
   final double? replayGainDb;
 
   Duration get duration => Duration(milliseconds: durationMs);
+
+  /// Streamed from the internet ([path] is a URL) rather than a local file.
+  bool get isOnline =>
+      path.startsWith('https://') || path.startsWith('http://');
+
+  Track copyWith({String? artPath}) => Track(
+    id: id,
+    path: path,
+    title: title,
+    artist: artist,
+    album: album,
+    durationMs: durationMs,
+    modifiedMs: modifiedMs,
+    trackNumber: trackNumber,
+    artPath: artPath ?? this.artPath,
+    artUrl: artUrl,
+    replayGainDb: replayGainDb,
+  );
 
   factory Track.fromJson(Map<String, dynamic> json) => Track(
     id: json['id'] as String,
@@ -80,6 +104,7 @@ class Track {
     modifiedMs: json['modifiedMs'] as int? ?? 0,
     trackNumber: json['trackNumber'] as int?,
     artPath: json['artPath'] as String?,
+    artUrl: json['artUrl'] as String?,
     replayGainDb: (json['replayGainDb'] as num?)?.toDouble(),
   );
 
@@ -93,6 +118,7 @@ class Track {
     'modifiedMs': modifiedMs,
     'trackNumber': trackNumber,
     'artPath': artPath,
+    'artUrl': ?artUrl,
     'replayGainDb': replayGainDb,
   };
 
@@ -104,7 +130,11 @@ class Track {
     artist: artist,
     album: album,
     duration: durationMs > 0 ? duration : null,
-    artUri: artUriFor(artPath),
+    artUri: artPath != null
+        ? artUriFor(artPath)
+        : artUrl == null
+        ? null
+        : Uri.parse(artUrl!),
     playable: true,
     extras: {'trackId': id, 'artPath': ?artPath},
   );

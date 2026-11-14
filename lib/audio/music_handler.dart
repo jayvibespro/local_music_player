@@ -153,6 +153,8 @@ class MusicHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     source.listen(
       (s) => queueTitle.add(s == null ? 'Up next' : 'Playing from ${s.title}'),
     );
+    library.online.artLoaded.listen(_onOnlineArt);
+    _player.errorStream.listen((_) => _reportError());
     history.load();
     _listenToAudioSession();
     _player.androidAudioSessionIdStream.listen(eq.attachSession);
@@ -183,13 +185,15 @@ class MusicHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   Timer? _positionSaver;
   bool _restoring = true;
 
+  /// Messages for the UI when a song can't be played (e.g. streaming while
+  /// offline).
+  final playbackErrors = PublishSubject<String>();
+
   /// Where the current queue came from ("All songs", a playlist, …).
   final source = BehaviorSubject<PlaybackSource?>.seeded(null);
 
   Stream<Duration> get positionStream => _player.positionStream;
 
-  /// Android audio session of the player (for the visualizer).
-  Stream<int?> get audioSessionIdStream => _player.androidAudioSessionIdStream;
   Duration get position => _player.position;
   bool get shuffleEnabled => _player.shuffleModeEnabled;
   LoopMode get loopMode => _player.loopMode;
@@ -437,7 +441,7 @@ class MusicHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     final track = id == null ? null : library.trackById(id);
     if (settings.normalizeVolume && track != null) {
       final rg = track.replayGainDb;
-      final lufs = rg == null
+      final lufs = rg == null && !track.isOnline
           ? await Waveforms.instance.loudness(track.id)
           : null;
       if (currentTrackId != id) return; // moved on meanwhile
@@ -464,7 +468,7 @@ class MusicHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       final at = order.position + i;
       if (at >= order.trackIds.length) break;
       final track = library.trackById(order.trackIds[at]);
-      if (track != null && track.replayGainDb == null) {
+      if (track != null && !track.isOnline && track.replayGainDb == null) {
         Waveforms.instance.load(track.id, track.path);
       }
     }
@@ -588,6 +592,9 @@ class MusicHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     final playing = _player.playing || _interrupted;
     final trackId = currentTrackId;
     final favorite = trackId != null && library.isFavorite(trackId);
+    // Favourites hold songs on this device only.
+    final online =
+        trackId != null && library.trackById(trackId)?.isOnline == true;
     final loop = _player.loopMode;
 
     playbackState.add(
@@ -596,13 +603,14 @@ class MusicHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
           MediaControl.skipToPrevious,
           if (playing) MediaControl.pause else MediaControl.play,
           MediaControl.skipToNext,
-          MediaControl.custom(
-            androidIcon: favorite
-                ? 'drawable/ic_favorite'
-                : 'drawable/ic_favorite_border',
-            label: favorite ? 'Remove from favourites' : 'Add to favourites',
-            name: _favoriteAction,
-          ),
+          if (!online)
+            MediaControl.custom(
+              androidIcon: favorite
+                  ? 'drawable/ic_favorite'
+                  : 'drawable/ic_favorite_border',
+              label: favorite ? 'Remove from favourites' : 'Add to favourites',
+              name: _favoriteAction,
+            ),
           MediaControl.custom(
             androidIcon: _player.shuffleModeEnabled
                 ? 'drawable/ic_shuffle'
@@ -669,13 +677,21 @@ class MusicHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     PlaybackSource? from,
   }) async {
     if (tracks.isEmpty) return;
+    tracks = library.online.remember(tracks);
     _restoring = false; // a user choice always wins over a pending restore
     source.add(from);
     queue.add([for (final t in tracks) t.toMediaItem()]);
     await _player.setShuffleModeEnabled(shuffle);
-    await _player.setAudioSources([
-      for (final t in tracks) AudioSource.file(t.path, tag: t.id),
-    ], initialIndex: index);
+    try {
+      await _player.setAudioSources([
+        for (final t in tracks) _sourceFor(t),
+      ], initialIndex: index);
+    } on PlayerException {
+      _reportError(tracks[index]);
+      return;
+    } on PlayerInterruptedException {
+      return; // replaced by a newer request
+    }
     if (shuffle) {
       await _player.shuffle();
       await _player.seek(Duration.zero, index: _player.effectiveIndices.first);
@@ -691,6 +707,7 @@ class MusicHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   /// of the first one (for undo).
   Future<int> playNextAll(List<Track> tracks) async {
     if (tracks.isEmpty) return -1;
+    tracks = library.online.remember(tracks);
     if (queue.value.isEmpty) {
       await playTracks(tracks);
       return 0;
@@ -701,25 +718,54 @@ class MusicHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
         ..insertAll(at, [for (final t in tracks) t.toMediaItem()]),
     );
     await _player.insertAudioSources(at, [
-      for (final t in tracks) AudioSource.file(t.path, tag: t.id),
+      for (final t in tracks) _sourceFor(t),
     ]);
     return at;
   }
 
   Future<int> playNext(Track track) => playNextAll([track]);
 
+  void _reportError([Track? track]) {
+    final id = currentTrackId;
+    track ??= id == null ? null : library.trackById(id);
+    if (track == null) return;
+    playbackErrors.add(
+      track.isOnline
+          ? 'Couldn\'t stream "${track.title}". Check your internet connection.'
+          : 'Couldn\'t play "${track.title}".',
+    );
+  }
+
+  static AudioSource _sourceFor(Track t) => t.isOnline
+      ? AudioSource.uri(Uri.parse(t.path), tag: t.id)
+      : AudioSource.file(t.path, tag: t.id);
+
+  /// Shows an online song's cover art once it has downloaded.
+  void _onOnlineArt(Track track) {
+    final items = queue.value;
+    if (!items.any((i) => i.extras?['trackId'] == track.id)) return;
+    queue.add([
+      for (final item in items)
+        item.extras?['trackId'] == track.id
+            ? track.toMediaItem(mediaId: item.id)
+            : item,
+    ]);
+    if (currentTrackId == track.id) {
+      mediaItem.add(track.toMediaItem(mediaId: mediaItem.value?.id));
+    }
+  }
+
   /// Appends [tracks] to the queue. Returns the queue index of the first.
   Future<int> addAllToQueue(List<Track> tracks) async {
     if (tracks.isEmpty) return -1;
+    tracks = library.online.remember(tracks);
     if (queue.value.isEmpty) {
       await playTracks(tracks);
       return 0;
     }
     final at = queue.value.length;
     queue.add([...queue.value, for (final t in tracks) t.toMediaItem()]);
-    await _player.addAudioSources([
-      for (final t in tracks) AudioSource.file(t.path, tag: t.id),
-    ]);
+    await _player.addAudioSources([for (final t in tracks) _sourceFor(t)]);
     return at;
   }
 
@@ -964,7 +1010,7 @@ class MusicHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       await _player.setLoopMode(snapshot.loopMode);
       await _player.setShuffleModeEnabled(snapshot.shuffle);
       await _player.setAudioSources(
-        [for (final t in available) AudioSource.file(t.path, tag: t.id)],
+        [for (final t in available) _sourceFor(t)],
         initialIndex: index,
         initialPosition: position,
         shuffleOrder: RestoredShuffleOrder(

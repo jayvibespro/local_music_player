@@ -10,12 +10,16 @@ class Artwork extends StatelessWidget {
   const Artwork({
     super.key,
     required this.path,
+    this.url,
     this.size = 48,
     this.radius = 8,
     this.icon = Icons.music_note,
   });
 
   final String? path;
+
+  /// Web image shown when there's no local [path] (online songs).
+  final String? url;
   final double size;
   final double radius;
   final IconData icon;
@@ -35,7 +39,17 @@ class Artwork extends StatelessWidget {
       child: SizedBox.square(
         dimension: size,
         child: path == null
-            ? placeholder
+            ? url == null
+                  ? placeholder
+                  : Image.network(
+                      url!,
+                      fit: BoxFit.cover,
+                      cacheWidth: pixels,
+                      gaplessPlayback: true,
+                      frameBuilder: (_, child, frame, sync) =>
+                          frame == null && !sync ? placeholder : child,
+                      errorBuilder: (_, _, _) => placeholder,
+                    )
             : Image.file(
                 File(path!),
                 fit: BoxFit.cover,
@@ -54,11 +68,13 @@ class ArtworkWithIndicator extends StatelessWidget {
   const ArtworkWithIndicator({
     super.key,
     required this.path,
+    this.url,
     this.size = 48,
     this.radius = 8,
   });
 
   final String? path;
+  final String? url;
   final double size;
   final double radius;
 
@@ -70,7 +86,7 @@ class ArtworkWithIndicator extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Artwork(path: path, size: size, radius: radius),
+          Artwork(path: path, url: url, size: size, radius: radius),
           DecoratedBox(
             decoration: BoxDecoration(
               color: Colors.black.withValues(alpha: 0.45),

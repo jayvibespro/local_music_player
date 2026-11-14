@@ -10,10 +10,8 @@ import '../../audio/music_handler.dart';
 import '../../services/music_library.dart';
 import '../../models/track.dart';
 import '../../services/lyrics.dart';
-import '../../services/settings.dart';
 import '../widgets/artwork.dart';
 import '../widgets/lyrics_sheet.dart';
-import '../widgets/spectrum_visualizer.dart';
 import 'equalizer_screen.dart';
 import '../widgets/cover_carousel.dart';
 import '../widgets/delete_track.dart';
@@ -33,7 +31,6 @@ class NowPlayingScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final handler = context.read<MusicHandler>();
     final library = context.watch<MusicLibrary>();
-    final settings = context.watch<Settings>();
 
     return StreamBuilder<MediaItem?>(
       stream: handler.mediaItem,
@@ -41,6 +38,11 @@ class NowPlayingScreen extends StatelessWidget {
         final item = snapshot.data;
         final trackId = item?.extras?['trackId'] as String?;
         final isFavorite = trackId != null && library.isFavorite(trackId);
+        final track = trackId == null ? null : library.trackById(trackId);
+        // Online songs have no local file for lyrics, waveform, favourites
+        // or playlists.
+        final online = track?.isOnline ?? false;
+        final localPath = online ? null : track?.path;
         final textTheme = Theme.of(context).textTheme;
 
         final scheme = Theme.of(context).colorScheme;
@@ -90,14 +92,6 @@ class NowPlayingScreen extends StatelessWidget {
                     Navigator.of(context).push(EqualizerScreen.route());
                     return;
                   }
-                  if (value == 'visualizer') {
-                    final on = !settings.showVisualizer;
-                    if (on && !await requestVisualizerPermission(context)) {
-                      return;
-                    }
-                    await settings.update((s) => s.showVisualizer = on);
-                    return;
-                  }
                   if (value == 'lyrics') {
                     if (context.mounted && item != null) {
                       _openLyrics(context, item);
@@ -119,12 +113,6 @@ class NowPlayingScreen extends StatelessWidget {
                     ),
                   ),
                   if (Platform.isAndroid)
-                    CheckedPopupMenuItem(
-                      value: 'visualizer',
-                      checked: settings.showVisualizer,
-                      child: const Text('Visualizer'),
-                    ),
-                  if (Platform.isAndroid)
                     const PopupMenuItem(
                       value: 'eq',
                       child: ListTile(
@@ -132,20 +120,21 @@ class NowPlayingScreen extends StatelessWidget {
                         title: Text('Equalizer'),
                       ),
                     ),
-                  PopupMenuItem(
-                    enabled: trackId != null,
-                    value: 'delete',
-                    child: ListTile(
-                      leading: Icon(
-                        Icons.delete_forever_rounded,
-                        color: scheme.error,
-                      ),
-                      title: Text(
-                        'Delete from device…',
-                        style: TextStyle(color: scheme.error),
+                  if (!online)
+                    PopupMenuItem(
+                      enabled: trackId != null,
+                      value: 'delete',
+                      child: ListTile(
+                        leading: Icon(
+                          Icons.delete_forever_rounded,
+                          color: scheme.error,
+                        ),
+                        title: Text(
+                          'Delete from device…',
+                          style: TextStyle(color: scheme.error),
+                        ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ],
@@ -172,19 +161,6 @@ class NowPlayingScreen extends StatelessWidget {
                         // Full width so the neighbouring covers can peek in
                         // from the screen edges.
                         const CoverCarousel(),
-                        AnimatedSize(
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeOutCubic,
-                          child: settings.showVisualizer && Platform.isAndroid
-                              ? const Padding(
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: 28,
-                                    vertical: 4,
-                                  ),
-                                  child: SpectrumVisualizer(height: 52),
-                                )
-                              : const SizedBox(width: double.infinity),
-                        ),
                         const Spacer(),
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 28),
@@ -221,56 +197,65 @@ class NowPlayingScreen extends StatelessWidget {
                                     ),
                                   ),
                                   _LyricsButton(
-                                    path: trackId == null
-                                        ? null
-                                        : library.trackById(trackId)?.path,
+                                    path: localPath,
                                     onPressed: () => _openLyrics(context, item),
                                   ),
-                                  IconButton(
-                                    tooltip: 'Add to playlist',
-                                    icon: const Icon(
-                                      Icons.playlist_add_rounded,
-                                    ),
-                                    onPressed: trackId == null
-                                        ? null
-                                        : () => showAddToPlaylist(context, [
-                                            trackId,
-                                          ]),
-                                  ),
-                                  IconButton(
-                                    tooltip: isFavorite
-                                        ? 'Remove from favourites'
-                                        : 'Add to favourites',
-                                    icon: AnimatedSwitcher(
-                                      duration: const Duration(
-                                        milliseconds: 250,
+                                  if (online)
+                                    const Tooltip(
+                                      message: 'Streaming from Audius',
+                                      child: Padding(
+                                        padding: EdgeInsets.all(12),
+                                        child: Icon(Icons.cloud_outlined),
                                       ),
-                                      transitionBuilder: (child, anim) =>
-                                          ScaleTransition(
-                                            scale: anim,
-                                            child: child,
-                                          ),
-                                      child: Icon(
-                                        isFavorite
-                                            ? Icons.favorite_rounded
-                                            : Icons.favorite_border_rounded,
-                                        key: ValueKey(isFavorite),
-                                        color: isFavorite
-                                            ? scheme.primary
-                                            : null,
+                                    )
+                                  else ...[
+                                    IconButton(
+                                      tooltip: 'Add to playlist',
+                                      icon: const Icon(
+                                        Icons.playlist_add_rounded,
                                       ),
+                                      onPressed: trackId == null
+                                          ? null
+                                          : () => showAddToPlaylist(context, [
+                                              trackId,
+                                            ]),
                                     ),
-                                    onPressed: trackId == null
-                                        ? null
-                                        : () => library.toggleFavorite(trackId),
-                                  ),
+                                    IconButton(
+                                      tooltip: isFavorite
+                                          ? 'Remove from favourites'
+                                          : 'Add to favourites',
+                                      icon: AnimatedSwitcher(
+                                        duration: const Duration(
+                                          milliseconds: 250,
+                                        ),
+                                        transitionBuilder: (child, anim) =>
+                                            ScaleTransition(
+                                              scale: anim,
+                                              child: child,
+                                            ),
+                                        child: Icon(
+                                          isFavorite
+                                              ? Icons.favorite_rounded
+                                              : Icons.favorite_border_rounded,
+                                          key: ValueKey(isFavorite),
+                                          color: isFavorite
+                                              ? scheme.primary
+                                              : null,
+                                        ),
+                                      ),
+                                      onPressed: trackId == null
+                                          ? null
+                                          : () =>
+                                                library.toggleFavorite(trackId),
+                                    ),
+                                  ],
                                 ],
                               ),
                               const SizedBox(height: 12),
                               if (trackId != null)
                                 WaveformSeekBar(
                                   trackId: trackId,
-                                  path: library.trackById(trackId)?.path,
+                                  path: localPath,
                                   duration: item.duration ?? Duration.zero,
                                 ),
                               const SizedBox(height: 8),
@@ -295,6 +280,14 @@ class NowPlayingScreen extends StatelessWidget {
     final trackId = item.extras?['trackId'] as String?;
     final track = trackId == null ? null : library.trackById(trackId);
     if (track == null) return;
+    if (track.isOnline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Lyrics aren\'t available for online songs'),
+        ),
+      );
+      return;
+    }
     final lyrics = await LyricsFinder.instance.find(track.path);
     if (!context.mounted) return;
     if (lyrics == null) {

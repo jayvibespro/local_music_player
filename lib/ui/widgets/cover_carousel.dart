@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../audio/music_handler.dart';
+import '../../models/track.dart';
 import '../../services/music_library.dart';
 import 'artwork.dart';
 
@@ -276,7 +277,7 @@ class _CoverCarouselState extends State<CoverCarousel> {
             size: size,
             step: step,
             pauseScale: pauseScale,
-            artPath: library.trackById(_order.trackIds[i])?.artPath,
+            track: library.trackById(_order.trackIds[i]),
           ),
       ],
     );
@@ -288,7 +289,7 @@ class _CoverCarouselState extends State<CoverCarousel> {
     required double size,
     required double step,
     required double pauseScale,
-    required String? artPath,
+    required Track? track,
   }) {
     final d = delta.abs();
     final t = math.min(d, 1.0);
@@ -322,7 +323,12 @@ class _CoverCarouselState extends State<CoverCarousel> {
               child: Hero(
                 // Only the current song's cover matches the mini player.
                 tag: index == _order.position ? 'artwork' : 'cover-$index',
-                child: Artwork(path: artPath, size: size, radius: _radius),
+                child: Artwork(
+                  path: track?.artPath,
+                  url: track?.artUrl,
+                  size: size,
+                  radius: _radius,
+                ),
               ),
             ),
           ),

@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import '../../audio/eq_presets.dart';
 import '../../services/music_library.dart';
 import '../../services/settings.dart';
-import '../widgets/spectrum_visualizer.dart';
 import 'equalizer_screen.dart';
 import 'folders_screen.dart';
 
@@ -157,21 +156,6 @@ class SettingsScreen extends StatelessWidget {
             value: settings.normalizeVolume,
             onChanged: (v) => settings.update((s) => s.normalizeVolume = v),
           ),
-          if (Platform.isAndroid)
-            SwitchListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-              secondary: const Icon(Icons.bar_chart_rounded),
-              title: const Text('Visualizer'),
-              subtitle: const Text(
-                'Bars that move with the music on Now Playing. Android asks '
-                'for microphone access to read the audio; nothing is recorded',
-              ),
-              value: settings.showVisualizer,
-              onChanged: (v) async {
-                if (v && !await requestVisualizerPermission(context)) return;
-                await settings.update((s) => s.showVisualizer = v);
-              },
-            ),
           if (Platform.isAndroid)
             ListTile(
               contentPadding: const EdgeInsets.symmetric(horizontal: 20),

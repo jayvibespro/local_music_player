@@ -1,5 +1,5 @@
 name: audio_fx
-description: "Equalizer (10-band), loudness and visualizer for an Android audio session."
+description: "Equalizer (10-band), and loudness for an Android audio session."
 publish_to: none
 version: 0.0.1
 homepage:

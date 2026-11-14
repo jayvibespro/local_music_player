@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -13,6 +15,7 @@ import '../widgets/playlist_picker.dart';
 import '../widgets/sort_sheet.dart';
 import '../widgets/track_tile.dart';
 import '../widgets/voice_sheet.dart';
+import 'discover_tab.dart';
 import 'folders_screen.dart';
 import 'for_you_tab.dart';
 import 'playlist_screen.dart';
@@ -27,14 +30,38 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late int _tab = context.read<Settings>().homeTab.clamp(0, 4);
+  late int _tab = context.read<Settings>().homeTab.clamp(0, _discover);
 
-  static const _titles = ['For you', 'Songs', 'Albums', 'Artists', 'Playlists'];
+  static const _titles = [
+    'For you',
+    'Songs',
+    'Albums',
+    'Artists',
+    'Playlists',
+    'Discover',
+  ];
+  static const _discover = 5;
+
+  /// Discover loads from the internet, so it's only built once opened.
+  late bool _discoverOpened = _tab == _discover;
+  StreamSubscription<String>? _errors;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _firstRunSetup());
+    _errors = context.read<MusicHandler>().playbackErrors.listen((message) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(message)));
+    });
+  }
+
+  @override
+  void dispose() {
+    _errors?.cancel();
+    super.dispose();
   }
 
   Future<void> _firstRunSetup() async {
@@ -69,7 +96,10 @@ class _HomeScreenState extends State<HomeScreen> {
     };
 
     final Widget body;
-    if (library.tracks.isEmpty) {
+    if (_tab == _discover && library.tracks.isEmpty) {
+      // Online music works without any songs on the device.
+      body = const DiscoverTab();
+    } else if (library.tracks.isEmpty) {
       body = _EmptyLibrary(scanning: library.scanning);
     } else {
       // All tabs stay alive to keep their scroll positions. Opting them out
@@ -86,6 +116,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _AlbumsTab(albums: handler.sortedAlbums),
           _ArtistsTab(artists: handler.sortedArtists),
           const _PlaylistsTab(),
+          _discoverOpened ? const DiscoverTab() : const SizedBox.shrink(),
         ].map((tab) => PrimaryScrollController.none(child: tab)).toList(),
       );
     }
@@ -148,7 +179,10 @@ class _HomeScreenState extends State<HomeScreen> {
           NavigationBar(
             selectedIndex: _tab,
             onDestinationSelected: (i) {
-              setState(() => _tab = i);
+              setState(() {
+                _tab = i;
+                if (i == _discover) _discoverOpened = true;
+              });
               context.read<Settings>().update((s) => s.homeTab = i);
             },
             destinations: const [
@@ -176,6 +210,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 icon: Icon(Icons.queue_music_outlined),
                 selectedIcon: Icon(Icons.queue_music),
                 label: 'Playlists',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.explore_outlined),
+                selectedIcon: Icon(Icons.explore),
+                label: 'Discover',
               ),
             ],
           ),
@@ -419,7 +458,16 @@ class TrackSearchDelegate extends SearchDelegate<void> {
     if (query.trim().isEmpty) return _recent(context);
     final results = _results();
     if (results.isEmpty) {
-      return Center(child: Text('Nothing matches "$query"'));
+      return OnlineSearchResults(
+        query: query,
+        header: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+          child: Text(
+            'Not in your library. Results from Audius:',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+        ),
+      );
     }
     final handler = context.read<MusicHandler>();
     final textTheme = Theme.of(context).textTheme;
@@ -518,6 +566,17 @@ class TrackSearchDelegate extends SearchDelegate<void> {
             ),
           ),
         ],
+        SliverToBoxAdapter(
+          child: ListTile(
+            leading: const Icon(Icons.travel_explore_rounded),
+            title: Text('Search online for "$query"'),
+            subtitle: const Text('Stream from Audius'),
+            onTap: () {
+              _remember();
+              Navigator.of(context).push(OnlineSearchScreen.route(query));
+            },
+          ),
+        ),
       ],
     );
   }
@@ -528,7 +587,7 @@ class TrackSearchDelegate extends SearchDelegate<void> {
       return Center(
         child: Text(
           'Search your songs, artists, albums and playlists.\n'
-          'Typos are fine.',
+          'Typos are fine. Songs you don\'t have are found online.',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyMedium,
         ),

@@ -6,6 +6,8 @@ import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
+import 'lyrics_text.dart';
+
 @immutable
 class LyricLine {
   const LyricLine(this.text, [this.time]);
@@ -121,27 +123,29 @@ class LyricsFinder {
         final name = p.basename(entity.path);
         if (p.extension(name).toLowerCase() == '.lrc' &&
             p.basenameWithoutExtension(name).toLowerCase() == base) {
-          final lyrics = parseLyrics(_readText(entity), source: name);
+          final text = decodeTextFile(entity.readAsBytesSync());
+          final lyrics = parseLyrics(text, source: name);
           if (lyrics != null) return lyrics;
         }
       }
     } catch (_) {}
+    // MP3 (ID3) lyrics are decoded here: the metadata package gets UTF-16
+    // lyrics wrong, which shows English lyrics as Chinese characters.
+    try {
+      final id3 = readId3Lyrics(audioPath);
+      if (id3 != null) {
+        final lyrics = parseLyrics(id3, source: 'embedded');
+        if (lyrics != null) return lyrics;
+      }
+    } catch (_) {}
+    // Other formats (FLAC, M4A, Ogg) store UTF-8, which the package reads
+    // fine; the repair only undoes byte-swapped text, just in case.
     try {
       final embedded = readMetadata(File(audioPath)).lyrics;
       if (embedded != null && embedded.trim().isNotEmpty) {
-        return parseLyrics(embedded, source: 'embedded');
+        return parseLyrics(repairSwappedText(embedded), source: 'embedded');
       }
     } catch (_) {}
     return null;
-  }
-
-  /// UTF-8, falling back to Latin-1 for older files.
-  static String _readText(File f) {
-    final bytes = f.readAsBytesSync();
-    try {
-      return utf8.decode(bytes);
-    } on FormatException {
-      return latin1.decode(bytes);
-    }
   }
 }

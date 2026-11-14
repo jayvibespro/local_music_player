@@ -1,30 +1,19 @@
 package com.jacksons.audio_fx
 
 import android.media.audiofx.DynamicsProcessing
-import android.media.audiofx.Visualizer
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import io.flutter.embedding.engine.plugins.FlutterPlugin
-import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
-import kotlin.math.hypot
-import kotlin.math.log10
 import kotlin.math.max
-import kotlin.math.min
-import kotlin.math.pow
 import kotlin.math.sqrt
 
 /**
  * Audio effects on the player's audio session:
  *  - graphic EQ + preamp + loudness gain + limiter (DynamicsProcessing, API 28+)
- *  - spectrum for the visualizer (Visualizer)
  */
-class AudioFxPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
+class AudioFxPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var methods: MethodChannel
-    private lateinit var events: EventChannel
-    private val main = Handler(Looper.getMainLooper())
 
     // --- Equalizer / loudness ---
     private var dynamics: DynamicsProcessing? = null
@@ -35,21 +24,13 @@ class AudioFxPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
     private var preamp = 0f
     private var loudness = 0f
 
-    // --- Visualizer ---
-    private var visualizer: Visualizer? = null
-    private var sink: EventChannel.EventSink? = null
-
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         methods = MethodChannel(binding.binaryMessenger, "audio_fx")
         methods.setMethodCallHandler(this)
-        events = EventChannel(binding.binaryMessenger, "audio_fx/visualizer")
-        events.setStreamHandler(this)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         methods.setMethodCallHandler(null)
-        events.setStreamHandler(null)
-        stopVisualizer()
         releaseDynamics()
     }
 
@@ -141,73 +122,4 @@ class AudioFxPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
         }
         dynamics = null
     }
-
-    // ---------------------------------------------------------------------
-    // Visualizer
-
-    override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
-        sink = events
-        val args = arguments as? Map<*, *>
-        val session = (args?.get("sessionId") as? Number)?.toInt() ?: 0
-        val bands = (args?.get("bands") as? Number)?.toInt() ?: 48
-        try {
-            startVisualizer(session, bands)
-        } catch (e: Exception) {
-            // Usually: RECORD_AUDIO not granted.
-            events.error("visualizer", e.message, null)
-        }
-    }
-
-    override fun onCancel(arguments: Any?) {
-        stopVisualizer()
-        sink = null
-    }
-
-    private fun startVisualizer(session: Int, bandCount: Int) {
-        stopVisualizer()
-        val v = Visualizer(session)
-        val range = Visualizer.getCaptureSizeRange()
-        v.captureSize = min(1024, range[1])
-        val sampleRate = v.samplingRate / 1000f // milliHz -> Hz
-        val size = v.captureSize
-        val edges = logEdges(bandCount, 40f, min(16000f, sampleRate / 2))
-        val out = DoubleArray(bandCount)
-
-        v.setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
-            override fun onWaveFormDataCapture(vis: Visualizer?, waveform: ByteArray?, rate: Int) {}
-
-            override fun onFftDataCapture(vis: Visualizer?, fft: ByteArray?, rate: Int) {
-                if (fft == null) return
-                val bins = size / 2
-                for (b in 0 until bandCount) {
-                    val from = max(1, (edges[b] * size / sampleRate).toInt())
-                    val to = max(from + 1, min(bins, (edges[b + 1] * size / sampleRate).toInt()))
-                    var peak = 0.0
-                    for (k in from until to) {
-                        val re = fft[2 * k].toDouble()
-                        val im = fft[2 * k + 1].toDouble()
-                        peak = max(peak, hypot(re, im))
-                    }
-                    // ~0..45 dB range of the 8-bit FFT, mapped to 0..1.
-                    out[b] = (20 * log10(peak + 1.0) / 45.0).coerceIn(0.0, 1.0)
-                }
-                val copy = out.toList()
-                main.post { sink?.success(copy) }
-            }
-        }, Visualizer.getMaxCaptureRate(), false, true)
-        v.enabled = true
-        visualizer = v
-    }
-
-    private fun stopVisualizer() {
-        try {
-            visualizer?.enabled = false
-            visualizer?.release()
-        } catch (_: Exception) {
-        }
-        visualizer = null
-    }
-
-    private fun logEdges(count: Int, lo: Float, hi: Float): FloatArray =
-        FloatArray(count + 1) { i -> lo * (hi / lo).pow(i / count.toFloat()) }
 }

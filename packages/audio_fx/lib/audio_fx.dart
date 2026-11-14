@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 /// Audio effects on the player's Android audio session. See README.md.
 abstract final class AudioFx {
   static const _methods = MethodChannel('audio_fx');
-  static const _visualizer = EventChannel('audio_fx/visualizer');
 
   /// Whether the multi-band equalizer is available (Android 9+).
   static Future<bool> isEqualizerSupported() async {
@@ -37,11 +36,4 @@ abstract final class AudioFx {
   /// clipping).
   static Future<void> setLoudness(double gain) =>
       _methods.invokeMethod('setLoudness', {'gain': gain});
-
-  /// Spectrum levels (0..1, low to high frequency), ~20 times a second.
-  /// Needs the RECORD_AUDIO permission on Android.
-  static Stream<List<double>> spectrum(int sessionId, {int bands = 48}) =>
-      _visualizer
-          .receiveBroadcastStream({'sessionId': sessionId, 'bands': bands})
-          .map((e) => (e as List).cast<double>());
 }
